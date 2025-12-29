@@ -21,9 +21,13 @@ const TheStream: React.FC<TheStreamProps> = ({ tasks, onReorder, onUpdateDuratio
     // We only initialize sortable if we have tasks
     if (scrollRef.current && tasks.length > 0) {
       sortableRef.current = new Sortable(scrollRef.current, {
-        animation: 150,
-        handle: '.drag-handle',
+        animation: 300, // Smoother animation
+        delay: 100, // Slight delay on touch to prevent scrolling interference
+        delayOnTouchOnly: true, 
+        filter: 'button', // Prevent dragging when clicking buttons
+        preventOnFilter: false, // Allow buttons to be clicked
         ghostClass: 'opacity-20',
+        chosenClass: 'scale-[1.02]',
         onEnd: (evt) => {
           if (evt.oldIndex !== undefined && evt.newIndex !== undefined) {
             const newOrder = [...tasks];
@@ -104,7 +108,7 @@ const TheStream: React.FC<TheStreamProps> = ({ tasks, onReorder, onUpdateDuratio
           )}
         </>
       ) : (
-        <div ref={scrollRef} className="space-y-4">
+        <div ref={scrollRef} className="space-y-4 pb-32">
           {tasks.map((task) => (
             <TaskCard 
               key={task.id} 
