@@ -1,0 +1,245 @@
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Header from './components/Header';
+import TheStream from './components/TheStream';
+import TheDepot from './components/TheDepot';
+import HistoryView from './components/HistoryView';
+import DoneModal from './components/DoneModal';
+import PresetModal from './components/PresetModal';
+import SettingsModal from './components/SettingsModal';
+import { Task, HistoryItem, ViewMode, Preset, DEFAULT_PRESETS } from './types';
+import { calculateTimeline } from './utils/time';
+
+type Theme = 'warm' | 'nebula';
+
+const App: React.FC = () => {
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    const saved = localStorage.getItem('tf_tasks');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    const saved = localStorage.getItem('tf_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [presets, setPresets] = useState<Preset[]>(() => {
+    const saved = localStorage.getItem('tf_presets');
+    return saved ? JSON.parse(saved) : DEFAULT_PRESETS;
+  });
+
+  const [theme, setTheme] = useState<Theme>(() => {
+    return (localStorage.getItem('tf_theme') as Theme) || 'warm';
+  });
+
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.STREAM);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [doneModalTask, setDoneModalTask] = useState<Task | null>(null);
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
+
+  useEffect(() => {
+    document.body.className = `theme-${theme} ${theme === 'nebula' ? 'dark' : ''}`;
+    localStorage.setItem('tf_theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(prev => (prev.getMinutes() === now.getMinutes() ? prev : now));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const persistData = useCallback(async (currentTasks: Task[], currentHistory: HistoryItem[], currentPresets: Preset[], currentTheme: Theme) => {
+    localStorage.setItem('tf_tasks', JSON.stringify(currentTasks));
+    localStorage.setItem('tf_history', JSON.stringify(currentHistory));
+    localStorage.setItem('tf_presets', JSON.stringify(currentPresets));
+    localStorage.setItem('tf_theme', currentTheme);
+
+    if (fileHandleRef.current) {
+      try {
+        const data = { tasks: currentTasks, history: currentHistory, presets: currentPresets, theme: currentTheme, lastSync: new Date().toISOString() };
+        const writable = await fileHandleRef.current.createWritable();
+        await writable.write(JSON.stringify(data, null, 2));
+        await writable.close();
+      } catch (err) {
+        if (err instanceof Error && err.name === 'NotAllowedError') {
+           setIsAutoSyncActive(false);
+           fileHandleRef.current = null;
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    persistData(tasks, history, presets, theme);
+  }, [tasks, history, presets, theme, persistData]);
+
+  const timelineTasks = useMemo(() => calculateTimeline(tasks, currentTime), [tasks, currentTime]);
+
+  const addTask = useCallback((preset: Preset) => {
+    const newTask: Task = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: preset.name,
+      duration: preset.duration,
+      color: preset.color,
+      accent: preset.accent,
+      icon: preset.icon
+    };
+    setTasks(prev => [...prev, newTask]);
+  }, []);
+
+  // Fix: Implemented handleExportData to allow users to download their data as a JSON file.
+  const handleExportData = useCallback(() => {
+    const data = { tasks, history, presets, theme };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `timeflow-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [tasks, history, presets, theme]);
+
+  // Fix: Implemented handleImportData to allow users to restore data from a backup JSON file.
+  const handleImportData = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (data.tasks) setTasks(data.tasks);
+        if (data.history) setHistory(data.history);
+        if (data.presets) setPresets(data.presets);
+        if (data.theme) setTheme(data.theme);
+      } catch (err) {
+        console.error("Failed to parse import file", err);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  // Fix: Implemented handleResetData to clear all user data and reset the app state.
+  const handleResetData = useCallback(() => {
+    if (window.confirm('确定要重置所有数据吗？此操作无法撤销。')) {
+      setTasks([]);
+      setHistory([]);
+      setPresets(DEFAULT_PRESETS);
+      setTheme('warm');
+      localStorage.clear();
+    }
+  }, []);
+
+  // Fix: Implemented toggleAutoSync to handle selecting a local file for persistent live backup.
+  const toggleAutoSync = useCallback(async () => {
+    if (isAutoSyncActive) {
+      fileHandleRef.current = null;
+      setIsAutoSyncActive(false);
+    } else {
+      try {
+        // @ts-ignore - File System Access API is not in all TS definitions
+        const [handle] = await window.showOpenFilePicker({
+          types: [{
+            description: 'JSON Files',
+            accept: { 'application/json': ['.json'] },
+          }],
+          multiple: false
+        });
+        fileHandleRef.current = handle;
+        setIsAutoSyncActive(true);
+        // Initial sync to the newly selected file
+        persistData(tasks, history, presets, theme);
+      } catch (err) {
+        console.warn("Auto-sync file selection cancelled or failed.");
+      }
+    }
+  }, [isAutoSyncActive, tasks, history, presets, theme, persistData]);
+
+  return (
+    <div className="h-full relative overflow-hidden flex flex-col landscape:flex-row">
+      <Header 
+        viewMode={viewMode} 
+        setViewMode={setViewMode} 
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+      />
+      
+      <main className="flex-1 overflow-y-auto pt-[440px] pb-48 landscape:pt-10 landscape:pl-[35%] landscape:pb-32 no-scrollbar scroll-smooth">
+        <div className="max-w-md mx-auto landscape:max-w-xl">
+          {viewMode === ViewMode.STREAM ? (
+            <TheStream 
+              tasks={timelineTasks} 
+              onReorder={setTasks}
+              onUpdateDuration={(id, dur) => setTasks(prev => prev.map(t => t.id === id ? { ...t, duration: Math.max(1, dur) } : t))}
+              onDone={setDoneModalTask}
+              onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
+            />
+          ) : (
+            <HistoryView history={history} />
+          )}
+        </div>
+      </main>
+
+      {viewMode === ViewMode.STREAM && (
+        <TheDepot 
+          presets={presets} 
+          onAdd={addTask} 
+          onManage={() => setIsPresetModalOpen(true)}
+        />
+      )}
+
+      {doneModalTask && (
+        <DoneModal 
+          task={doneModalTask} 
+          onConfirm={(note) => {
+             const currentTimeline = calculateTimeline(tasks, currentTime);
+             const finishedTask = currentTimeline.find(t => t.id === doneModalTask.id);
+             if (finishedTask) {
+                const historyItem: HistoryItem = {
+                  id: finishedTask.id,
+                  date: new Date().toLocaleDateString('zh-CN'),
+                  startTime: finishedTask.startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                  endTime: finishedTask.endTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                  name: finishedTask.name,
+                  note,
+                  color: finishedTask.color
+                };
+                setHistory(prev => [historyItem, ...prev]);
+             }
+             setTasks(prev => prev.filter(t => t.id !== doneModalTask.id));
+             setDoneModalTask(null);
+          }} 
+          onCancel={() => setDoneModalTask(null)} 
+        />
+      )}
+
+      {isPresetModalOpen && (
+        <PresetModal
+          presets={presets}
+          onAdd={(p) => setPresets(prev => [...prev, p])}
+          onUpdate={(up) => setPresets(prev => prev.map(p => p.id === up.id ? up : p))}
+          onReorder={setPresets}
+          onDelete={(id) => setPresets(prev => prev.filter(p => p.id !== id))}
+          onClose={() => setIsPresetModalOpen(false)}
+        />
+      )}
+
+      {isSettingsModalOpen && (
+        <SettingsModal
+          currentTheme={theme}
+          onThemeChange={setTheme}
+          onExport={handleExportData}
+          onImport={handleImportData}
+          onReset={handleResetData}
+          onClose={() => setIsSettingsModalOpen(false)}
+          isAutoSyncActive={isAutoSyncActive}
+          onToggleAutoSync={toggleAutoSync}
+        />
+      )}
+    </div>
+  );
+};
+
+export default App;
