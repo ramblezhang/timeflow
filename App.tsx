@@ -8,11 +8,12 @@ import DoneModal from './components/DoneModal';
 import PresetModal from './components/PresetModal';
 import SettingsModal from './components/SettingsModal';
 import { Task, HistoryItem, ViewMode, Preset, DEFAULT_PRESETS } from './types';
-import { calculateTimeline } from './utils/time';
+import { calculateTimeline, formatTime } from './utils/time';
 
 type Theme = 'warm' | 'nebula';
 
 const App: React.FC = () => {
+  // --- Persistent State Initialization ---
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('tf_tasks');
     return saved ? JSON.parse(saved) : [];
@@ -32,37 +33,46 @@ const App: React.FC = () => {
     return (localStorage.getItem('tf_theme') as Theme) || 'warm';
   });
 
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.STREAM);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    return (localStorage.getItem('tf_viewMode') as ViewMode) || ViewMode.STREAM;
+  });
+
+  // --- UI State ---
   const [doneModalTask, setDoneModalTask] = useState<Task | null>(null);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  
   const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
 
+  // --- Effects ---
   useEffect(() => {
     document.body.className = `theme-${theme} ${theme === 'nebula' ? 'dark' : ''}`;
     localStorage.setItem('tf_theme', theme);
   }, [theme]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(prev => (prev.getMinutes() === now.getMinutes() ? prev : now));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const persistData = useCallback(async (currentTasks: Task[], currentHistory: HistoryItem[], currentPresets: Preset[], currentTheme: Theme) => {
+  const persistData = useCallback(async (
+    currentTasks: Task[], 
+    currentHistory: HistoryItem[], 
+    currentPresets: Preset[], 
+    currentTheme: Theme,
+    currentViewMode: ViewMode
+  ) => {
     localStorage.setItem('tf_tasks', JSON.stringify(currentTasks));
     localStorage.setItem('tf_history', JSON.stringify(currentHistory));
     localStorage.setItem('tf_presets', JSON.stringify(currentPresets));
     localStorage.setItem('tf_theme', currentTheme);
+    localStorage.setItem('tf_viewMode', currentViewMode);
 
     if (fileHandleRef.current) {
       try {
-        const data = { tasks: currentTasks, history: currentHistory, presets: currentPresets, theme: currentTheme, lastSync: new Date().toISOString() };
+        const data = { 
+          tasks: currentTasks, 
+          history: currentHistory, 
+          presets: currentPresets, 
+          theme: currentTheme, 
+          viewMode: currentViewMode,
+          lastSync: new Date().toISOString() 
+        };
         const writable = await fileHandleRef.current.createWritable();
         await writable.write(JSON.stringify(data, null, 2));
         await writable.close();
@@ -76,12 +86,15 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    persistData(tasks, history, presets, theme);
-  }, [tasks, history, presets, theme, persistData]);
+    persistData(tasks, history, presets, theme, viewMode);
+  }, [tasks, history, presets, theme, viewMode, persistData]);
 
-  const timelineTasks = useMemo(() => calculateTimeline(tasks, currentTime), [tasks, currentTime]);
+  // Derived timeline: strictly anchored to task.createdAt
+  const timelineTasks = useMemo(() => calculateTimeline(tasks), [tasks]);
 
+  // --- Handlers ---
   const addTask = useCallback((preset: Preset) => {
+    const now = Date.now();
     const newTask: Task = {
       id: Math.random().toString(36).substr(2, 9),
       name: preset.name,
@@ -89,13 +102,52 @@ const App: React.FC = () => {
       color: preset.color,
       accent: preset.accent,
       icon: preset.icon,
-      createdAt: Date.now()
+      // If list is empty, this task starts "now". If not, it's queued.
+      createdAt: tasks.length === 0 ? now : now 
     };
     setTasks(prev => [...prev, newTask]);
+  }, [tasks.length]);
+
+  const handleReorderTasks = useCallback((newOrder: Task[]) => {
+    // If a new task becomes the head, it starts "now"
+    if (newOrder.length > 0 && tasks.length > 0 && newOrder[0].id !== tasks[0].id) {
+       newOrder[0] = { ...newOrder[0], createdAt: Date.now() };
+    }
+    setTasks(newOrder);
+  }, [tasks]);
+
+  const archiveTask = useCallback((task: Task, note: string) => {
+    const now = new Date();
+    // Start time is when it was activated, End time is right now.
+    const startTimeStr = formatTime(new Date(task.createdAt));
+    const endTimeStr = formatTime(now);
+    
+    const historyItem: HistoryItem = {
+      id: task.id,
+      date: now.toLocaleDateString('zh-CN'),
+      startTime: startTimeStr,
+      endTime: endTimeStr,
+      name: task.name,
+      note,
+      color: task.color
+    };
+    
+    setHistory(prev => [historyItem, ...prev]);
+
+    setTasks(prev => {
+       const remaining = prev.filter(t => t.id !== task.id);
+       if (remaining.length > 0) {
+          // The next task in line starts immediately when this one is finished
+          remaining[0] = { ...remaining[0], createdAt: Date.now() };
+       }
+       return remaining;
+    });
+    setDoneModalTask(null);
   }, []);
 
+  // --- Sync & Backup Handlers ---
   const handleExportData = useCallback(() => {
-    const data = { tasks, history, presets, theme };
+    const data = { tasks, history, presets, theme, viewMode };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -103,7 +155,7 @@ const App: React.FC = () => {
     link.download = `timeflow-backup-${new Date().toISOString().split('T')[0]}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [tasks, history, presets, theme]);
+  }, [tasks, history, presets, theme, viewMode]);
 
   const handleImportData = useCallback((file: File) => {
     const reader = new FileReader();
@@ -114,6 +166,7 @@ const App: React.FC = () => {
         if (data.history) setHistory(data.history);
         if (data.presets) setPresets(data.presets);
         if (data.theme) setTheme(data.theme);
+        if (data.viewMode) setViewMode(data.viewMode);
       } catch (err) {
         console.error("Failed to parse import file", err);
       }
@@ -127,6 +180,7 @@ const App: React.FC = () => {
       setHistory([]);
       setPresets(DEFAULT_PRESETS);
       setTheme('warm');
+      setViewMode(ViewMode.STREAM);
       localStorage.clear();
     }
   }, []);
@@ -147,21 +201,12 @@ const App: React.FC = () => {
         });
         fileHandleRef.current = handle;
         setIsAutoSyncActive(true);
-        persistData(tasks, history, presets, theme);
+        persistData(tasks, history, presets, theme, viewMode);
       } catch (err) {
         console.warn("Auto-sync file selection cancelled or failed.");
       }
     }
-  }, [isAutoSyncActive, tasks, history, presets, theme, persistData]);
-
-  // Handle reorder logic with createdAt updates for the head
-  const handleReorderTasks = useCallback((newOrder: Task[]) => {
-    // If the top task changed, update its createdAt to "now" to reflect it's the current focus
-    if (newOrder.length > 0 && tasks.length > 0 && newOrder[0].id !== tasks[0].id) {
-       newOrder[0] = { ...newOrder[0], createdAt: Date.now() };
-    }
-    setTasks(newOrder);
-  }, [tasks]);
+  }, [isAutoSyncActive, tasks, history, presets, theme, viewMode, persistData]);
 
   return (
     <div className="h-full relative overflow-hidden flex flex-col landscape:flex-row">
@@ -198,34 +243,7 @@ const App: React.FC = () => {
       {doneModalTask && (
         <DoneModal 
           task={doneModalTask} 
-          onConfirm={(note) => {
-             const now = new Date();
-             const endTime = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-             const startTime = new Date(doneModalTask.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-             
-             const historyItem: HistoryItem = {
-               id: doneModalTask.id,
-               date: now.toLocaleDateString('zh-CN'),
-               startTime: startTime,
-               endTime: endTime,
-               name: doneModalTask.name,
-               note,
-               color: doneModalTask.color
-             };
-             
-             setHistory(prev => [historyItem, ...prev]);
-
-             // Remove completed task and update the NEXT task's createdAt to now
-             setTasks(prev => {
-                const remaining = prev.filter(t => t.id !== doneModalTask.id);
-                if (remaining.length > 0) {
-                   // The new head starts "now"
-                   remaining[0] = { ...remaining[0], createdAt: Date.now() };
-                }
-                return remaining;
-             });
-             setDoneModalTask(null);
-          }} 
+          onConfirm={(note) => archiveTask(doneModalTask, note)} 
           onCancel={() => setDoneModalTask(null)} 
         />
       )}

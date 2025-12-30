@@ -18,23 +18,27 @@ export const formatTime = (date: Date): string => {
 export const formatDuration = (minutes: number): string => {
   if (minutes < 60) return `${minutes}m`;
   const hours = minutes / 60;
-  // If it's a whole number, don't show .0
   return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 };
 
 /**
  * Core Algorithm: The Liquid Timeline
- * Calculates start and end times for each task starting from a base time.
+ * Calculates start and end times for each task in the sequence.
+ * The first task starts at its 'createdAt' timestamp, and others follow.
  */
-export const calculateTimeline = (tasks: Task[], baseTime: Date): TimelineTask[] => {
-  let currentTime = new Date(baseTime);
+export const calculateTimeline = (tasks: Task[]): TimelineTask[] => {
+  if (tasks.length === 0) return [];
+
+  // Anchor the entire timeline to the first task's creation/activation time
+  // This ensures the timeline doesn't "drift" as the wall clock moves.
+  let cursor = new Date(tasks[0].createdAt);
   
   return tasks.map((task) => {
-    const startTime = new Date(currentTime);
-    const endTime = new Date(currentTime.getTime() + task.duration * 60000);
+    const startTime = new Date(cursor);
+    const endTime = new Date(cursor.getTime() + task.duration * 60000);
     
     // Update pointer for the next task
-    currentTime = new Date(endTime);
+    cursor = new Date(endTime);
     
     return {
       ...task,
@@ -45,8 +49,12 @@ export const calculateTimeline = (tasks: Task[], baseTime: Date): TimelineTask[]
 };
 
 export const getRelativeDay = (dateStr: string): string => {
-  const today = new Date().toLocaleDateString('zh-CN');
-  const d = new Date(dateStr).toLocaleDateString('zh-CN');
-  if (today === d) return '今天';
+  try {
+    const today = new Date().toLocaleDateString('zh-CN');
+    const d = new Date(dateStr).toLocaleDateString('zh-CN');
+    if (today === d) return '今天';
+  } catch (e) {
+    return dateStr;
+  }
   return dateStr;
 };
