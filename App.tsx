@@ -88,12 +88,12 @@ const App: React.FC = () => {
       duration: preset.duration,
       color: preset.color,
       accent: preset.accent,
-      icon: preset.icon
+      icon: preset.icon,
+      createdAt: Date.now()
     };
     setTasks(prev => [...prev, newTask]);
   }, []);
 
-  // Fix: Implemented handleExportData to allow users to download their data as a JSON file.
   const handleExportData = useCallback(() => {
     const data = { tasks, history, presets, theme };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -105,7 +105,6 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [tasks, history, presets, theme]);
 
-  // Fix: Implemented handleImportData to allow users to restore data from a backup JSON file.
   const handleImportData = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -122,7 +121,6 @@ const App: React.FC = () => {
     reader.readAsText(file);
   }, []);
 
-  // Fix: Implemented handleResetData to clear all user data and reset the app state.
   const handleResetData = useCallback(() => {
     if (window.confirm('确定要重置所有数据吗？此操作无法撤销。')) {
       setTasks([]);
@@ -133,14 +131,13 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Fix: Implemented toggleAutoSync to handle selecting a local file for persistent live backup.
   const toggleAutoSync = useCallback(async () => {
     if (isAutoSyncActive) {
       fileHandleRef.current = null;
       setIsAutoSyncActive(false);
     } else {
       try {
-        // @ts-ignore - File System Access API is not in all TS definitions
+        // @ts-ignore
         const [handle] = await window.showOpenFilePicker({
           types: [{
             description: 'JSON Files',
@@ -150,13 +147,21 @@ const App: React.FC = () => {
         });
         fileHandleRef.current = handle;
         setIsAutoSyncActive(true);
-        // Initial sync to the newly selected file
         persistData(tasks, history, presets, theme);
       } catch (err) {
         console.warn("Auto-sync file selection cancelled or failed.");
       }
     }
   }, [isAutoSyncActive, tasks, history, presets, theme, persistData]);
+
+  // Handle reorder logic with createdAt updates for the head
+  const handleReorderTasks = useCallback((newOrder: Task[]) => {
+    // If the top task changed, update its createdAt to "now" to reflect it's the current focus
+    if (newOrder.length > 0 && tasks.length > 0 && newOrder[0].id !== tasks[0].id) {
+       newOrder[0] = { ...newOrder[0], createdAt: Date.now() };
+    }
+    setTasks(newOrder);
+  }, [tasks]);
 
   return (
     <div className="h-full relative overflow-hidden flex flex-col landscape:flex-row">
@@ -171,7 +176,7 @@ const App: React.FC = () => {
           {viewMode === ViewMode.STREAM ? (
             <TheStream 
               tasks={timelineTasks} 
-              onReorder={setTasks}
+              onReorder={handleReorderTasks}
               onUpdateDuration={(id, dur) => setTasks(prev => prev.map(t => t.id === id ? { ...t, duration: Math.max(1, dur) } : t))}
               onDone={setDoneModalTask}
               onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
@@ -194,21 +199,31 @@ const App: React.FC = () => {
         <DoneModal 
           task={doneModalTask} 
           onConfirm={(note) => {
-             const currentTimeline = calculateTimeline(tasks, currentTime);
-             const finishedTask = currentTimeline.find(t => t.id === doneModalTask.id);
-             if (finishedTask) {
-                const historyItem: HistoryItem = {
-                  id: finishedTask.id,
-                  date: new Date().toLocaleDateString('zh-CN'),
-                  startTime: finishedTask.startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
-                  endTime: finishedTask.endTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
-                  name: finishedTask.name,
-                  note,
-                  color: finishedTask.color
-                };
-                setHistory(prev => [historyItem, ...prev]);
-             }
-             setTasks(prev => prev.filter(t => t.id !== doneModalTask.id));
+             const now = new Date();
+             const endTime = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+             const startTime = new Date(doneModalTask.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+             
+             const historyItem: HistoryItem = {
+               id: doneModalTask.id,
+               date: now.toLocaleDateString('zh-CN'),
+               startTime: startTime,
+               endTime: endTime,
+               name: doneModalTask.name,
+               note,
+               color: doneModalTask.color
+             };
+             
+             setHistory(prev => [historyItem, ...prev]);
+
+             // Remove completed task and update the NEXT task's createdAt to now
+             setTasks(prev => {
+                const remaining = prev.filter(t => t.id !== doneModalTask.id);
+                if (remaining.length > 0) {
+                   // The new head starts "now"
+                   remaining[0] = { ...remaining[0], createdAt: Date.now() };
+                }
+                return remaining;
+             });
              setDoneModalTask(null);
           }} 
           onCancel={() => setDoneModalTask(null)} 

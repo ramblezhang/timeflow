@@ -6,6 +6,7 @@ export interface Task {
   color: string;
   accent?: string;
   icon?: string;
+  createdAt: number; // Unix timestamp for the actual start point of this task
 }
 
 export interface TimelineTask extends Task {
