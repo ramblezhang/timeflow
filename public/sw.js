@@ -35,6 +35,7 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event: Network first, fall back to cache
 self.addEventListener('fetch', (event) => {
+  // Only handle GET requests
   if (event.request.method !== 'GET') {
     return;
   }

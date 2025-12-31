@@ -1,6 +1,16 @@
+
 # TimeFlow (时间心流) - 部署与开发指南
 
 这是一个基于 React + Vite + TypeScript 构建的 PWA 应用。
+
+## 📁 项目结构说明 (PWA)
+
+为了确保应用在 Cloudflare Pages 等平台部署后能正常安装，以下 PWA 核心文件必须存放在 `public/` 目录下：
+- `public/manifest.json`: 应用清单
+- `public/sw.js`: Service Worker (离线缓存)
+- `public/icon.svg`: 应用图标
+
+*请勿在项目根目录下存放这些文件的副本，以免在开发模式和生产构建之间产生混淆。*
 
 ## 🚀 快速开始：如何在本地运行看效果
 
@@ -65,6 +75,6 @@ npm run dev
 2. 运行 `npm install`。
 3. 等待进度条跑完，出现 `added ... packages` 字样后，再次尝试 `npm run dev`。
 
-### 🔴 报错：`MIME type ... is not a supported stylesheet`
-**原因**：这通常是因为您直接上传了源码(`.tsx`)到服务器，而不是上传构建后的 `dist` 文件夹。
-**解决**：请参考“部署到 Cloudflare Pages”中的步骤，先运行 `npm run build`，然后只上传生成的 `dist` 文件夹。
+### 🔴 部署后没有“安装应用”按钮
+**原因**：通常是因为 `manifest.json` 或 `sw.js` 没有被正确打包。
+**解决**：本项目已配置将这些文件放在 `public/` 目录下，Vite 会在构建时自动将它们复制到根目录。请确保不要手动在根目录创建这些文件的副本。
