@@ -18,6 +18,7 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
   const [name, setName] = useState('');
   const [duration, setDuration] = useState(30);
   const [selectedIcon, setSelectedIcon] = useState('work');
+  const [isEssential, setIsEssential] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const sortableContainerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +53,7 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
     setName(p.name);
     setDuration(p.duration);
     setSelectedIcon(p.icon);
+    setIsEssential(!!p.isEssential);
   };
 
   const resetForm = () => {
@@ -59,6 +61,7 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
     setName('');
     setDuration(30);
     setSelectedIcon('work');
+    setIsEssential(false);
   };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,7 +85,8 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
       duration: duration,
       color: presets.find(p => p.id === editingId)?.color || 'text-zinc-600', 
       accent: presets.find(p => p.id === editingId)?.accent || '#71717a', 
-      icon: selectedIcon
+      icon: selectedIcon,
+      isEssential
     };
 
     if (editingId) {
@@ -124,12 +128,15 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
                           <span className={`${editingId === p.id ? 'text-white dark:text-zinc-900' : 'text-zinc-400 dark:text-zinc-500'} pointer-events-none`}>
                             <Icon name={p.icon} className="w-4 h-4" />
                           </span>
-                          <span className={`text-xs font-bold pointer-events-none ${editingId === p.id ? 'text-white dark:text-zinc-900' : 'text-zinc-600 dark:text-zinc-300'}`}>
+                          <span className={`text-xs font-bold pointer-events-none flex-1 truncate ${editingId === p.id ? 'text-white dark:text-zinc-900' : 'text-zinc-600 dark:text-zinc-300'}`}>
                             {p.name}
                           </span>
+                          {p.isEssential && (
+                             <span className={`w-1.5 h-1.5 rounded-full bg-amber-400 mr-2 ${editingId === p.id ? 'shadow-sm' : ''}`}></span>
+                          )}
                           <button 
                               onClick={(e) => { e.stopPropagation(); onDelete(p.id); if(editingId === p.id) resetForm(); }}
-                              className={`no-drag ml-2 p-1 rounded-full transition-colors ${editingId === p.id ? 'text-white/40 hover:text-white dark:text-zinc-900/40 dark:hover:text-zinc-900' : 'text-zinc-300 dark:text-zinc-600 hover:text-red-500'}`}
+                              className={`no-drag p-1 rounded-full transition-colors ${editingId === p.id ? 'text-white/40 hover:text-white dark:text-zinc-900/40 dark:hover:text-zinc-900' : 'text-zinc-300 dark:text-zinc-600 hover:text-red-500'}`}
                           >
                               <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 4.5L10.5 10.5M10.5 4.5L4.5 10.5" strokeLinecap="round"></path></svg>
                           </button>
@@ -192,6 +199,20 @@ const PresetModal: React.FC<PresetModalProps> = ({ presets, onAdd, onUpdate, onR
                             onChange={handleSliderChange}
                             className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-zinc-900 dark:accent-zinc-100"
                         />
+                    </div>
+
+                    {/* Essential Toggle */}
+                    <div 
+                        onClick={() => setIsEssential(!isEssential)}
+                        className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${isEssential ? 'bg-amber-50/50 border-amber-900/10 dark:bg-amber-900/10 dark:border-amber-500/10' : 'bg-zinc-50 dark:bg-white/5 border-zinc-100 dark:border-white/5'}`}
+                    >
+                        <div className="flex flex-col gap-0.5">
+                            <span className={`text-xs font-bold ${isEssential ? 'text-amber-900 dark:text-amber-100' : 'text-zinc-600 dark:text-zinc-400'}`}>每日必备</span>
+                            <span className="text-[9px] text-zinc-400 dark:text-zinc-500">标记为每天鼓励完成的项目</span>
+                        </div>
+                        <div className={`w-10 h-6 rounded-full relative transition-colors duration-300 ${isEssential ? 'bg-amber-400' : 'bg-zinc-200 dark:bg-zinc-700'}`}>
+                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${isEssential ? 'left-5' : 'left-1'}`}></div>
+                        </div>
                     </div>
                 </div>
 

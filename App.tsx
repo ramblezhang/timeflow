@@ -37,6 +37,9 @@ const App: React.FC = () => {
     return (localStorage.getItem('tf_viewMode') as ViewMode) || ViewMode.STREAM;
   });
 
+  // Track current date to ensure daily goals reset at midnight automatically
+  const [currentDateStr, setCurrentDateStr] = useState(new Date().toLocaleDateString('zh-CN'));
+
   // --- UI State ---
   const [doneModalTask, setDoneModalTask] = useState<Task | null>(null);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
@@ -48,7 +51,24 @@ const App: React.FC = () => {
   useEffect(() => {
     document.body.className = `theme-${theme} ${theme === 'nebula' ? 'dark' : ''}`;
     localStorage.setItem('tf_theme', theme);
+    
+    // Update PWA Theme Color Meta Tag
+    const metaThemeColor = document.getElementById('theme-color-meta');
+    if (metaThemeColor) {
+        metaThemeColor.setAttribute('content', theme === 'warm' ? '#fff9f2' : '#6a82fb');
+    }
   }, [theme]);
+
+  // Check for date change every minute to reset daily progress
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const nowStr = new Date().toLocaleDateString('zh-CN');
+      if (nowStr !== currentDateStr) {
+        setCurrentDateStr(nowStr);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [currentDateStr]);
 
   const persistData = useCallback(async (
     currentTasks: Task[], 
@@ -89,8 +109,24 @@ const App: React.FC = () => {
     persistData(tasks, history, presets, theme, viewMode);
   }, [tasks, history, presets, theme, viewMode, persistData]);
 
-  // Derived timeline: strictly anchored to task.createdAt
+  // Derived timeline
   const timelineTasks = useMemo(() => calculateTimeline(tasks), [tasks]);
+
+  // Calculate Daily Essential Progress
+  // Now depends on currentDateStr, so it recalculates automatically when date changes
+  const essentialProgress = useMemo(() => {
+    const essentials = presets.filter(p => p.isEssential);
+    if (essentials.length === 0) return { total: 0, current: 0 };
+
+    // Use the tracked state date string instead of creating a new one inside useMemo
+    // This ensures consistency if the app is left open overnight
+    const doneTodayNames = new Set(history.filter(h => h.date === currentDateStr).map(h => h.name));
+    
+    // Count how many distinct essential presets have been completed at least once today
+    const current = essentials.filter(p => doneTodayNames.has(p.name)).length;
+    
+    return { total: essentials.length, current };
+  }, [presets, history, currentDateStr]);
 
   // --- Handlers ---
   const addTask = useCallback((preset: Preset) => {
@@ -102,14 +138,12 @@ const App: React.FC = () => {
       color: preset.color,
       accent: preset.accent,
       icon: preset.icon,
-      // If list is empty, this task starts "now". If not, it's queued.
       createdAt: tasks.length === 0 ? now : now 
     };
     setTasks(prev => [...prev, newTask]);
   }, [tasks.length]);
 
   const handleReorderTasks = useCallback((newOrder: Task[]) => {
-    // If a new task becomes the head, it starts "now"
     if (newOrder.length > 0 && tasks.length > 0 && newOrder[0].id !== tasks[0].id) {
        newOrder[0] = { ...newOrder[0], createdAt: Date.now() };
     }
@@ -118,7 +152,6 @@ const App: React.FC = () => {
 
   const archiveTask = useCallback((task: Task, note: string) => {
     const now = new Date();
-    // Start time is when it was activated, End time is right now.
     const startTimeStr = formatTime(new Date(task.createdAt));
     const endTimeStr = formatTime(now);
     
@@ -133,11 +166,12 @@ const App: React.FC = () => {
     };
     
     setHistory(prev => [historyItem, ...prev]);
+    // Also update current date if needed (edge case around midnight)
+    setCurrentDateStr(now.toLocaleDateString('zh-CN'));
 
     setTasks(prev => {
        const remaining = prev.filter(t => t.id !== task.id);
        if (remaining.length > 0) {
-          // The next task in line starts immediately when this one is finished
           remaining[0] = { ...remaining[0], createdAt: Date.now() };
        }
        return remaining;
@@ -145,7 +179,6 @@ const App: React.FC = () => {
     setDoneModalTask(null);
   }, []);
 
-  // --- Sync & Backup Handlers ---
   const handleExportData = useCallback(() => {
     const data = { tasks, history, presets, theme, viewMode };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -214,6 +247,7 @@ const App: React.FC = () => {
         viewMode={viewMode} 
         setViewMode={setViewMode} 
         onOpenSettings={() => setIsSettingsModalOpen(true)}
+        essentialProgress={essentialProgress}
       />
       
       <main className="flex-1 overflow-y-auto pt-[440px] pb-48 landscape:pt-10 landscape:pl-[35%] landscape:pb-32 no-scrollbar scroll-smooth">

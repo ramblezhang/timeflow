@@ -112,6 +112,11 @@ const TheDepot: React.FC<TheDepotProps> = ({ presets, onAdd, onManage }) => {
                         name={p.icon} 
                         className={`w-5 h-5 landscape:w-4 landscape:h-4 transition-all duration-300 ${isActive ? 'text-white scale-110' : 'text-white/40 group-hover:text-white/80'}`} 
                     />
+                    
+                    {/* Essential Indicator Dot */}
+                    {p.isEssential && (
+                       <div className={`absolute top-2.5 right-2.5 w-1 h-1 rounded-full bg-amber-400/80 shadow-[0_0_4px_rgba(251,191,36,0.5)] transition-opacity duration-300 ${isActive ? 'opacity-0' : 'opacity-100'}`} />
+                    )}
                   </button>
                 );
               })}
@@ -132,7 +137,6 @@ const TheDepot: React.FC<TheDepotProps> = ({ presets, onAdd, onManage }) => {
 
       {/* 
          Global Tooltip Layer 
-         Rendered outside the overflow container, positioned using fixed coordinates.
       */}
       {activeTooltip && (
         <div 
@@ -143,9 +147,14 @@ const TheDepot: React.FC<TheDepotProps> = ({ presets, onAdd, onManage }) => {
                 transform: 'translate(-50%, -100%) translateY(-12px)'
             }}
         >
-            <span className="text-[11px] font-medium text-zinc-100 dark:text-zinc-900 serif italic tracking-wider whitespace-nowrap">
-                {activeTooltip.preset.name}
-            </span>
+            <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-medium text-zinc-100 dark:text-zinc-900 serif italic tracking-wider whitespace-nowrap">
+                    {activeTooltip.preset.name}
+                </span>
+                {activeTooltip.preset.isEssential && (
+                    <span className="w-1 h-1 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.8)]"></span>
+                )}
+            </div>
             <span className="text-[9px] font-mono text-zinc-400 dark:text-zinc-500 font-bold tracking-tight">
                 {formatDuration(activeTooltip.preset.duration)}
             </span>
