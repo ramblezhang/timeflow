@@ -197,11 +197,27 @@ const App: React.FC = () => {
         const data = JSON.parse(e.target?.result as string);
         if (data.tasks) setTasks(data.tasks);
         if (data.history) setHistory(data.history);
-        if (data.presets) setPresets(data.presets);
+        
+        // Intelligent Migration for Presets
+        // Handle legacy backups where 'isEssential' might be missing
+        if (data.presets) {
+           const defaultEssentialIds = new Set(
+              DEFAULT_PRESETS.filter(p => p.isEssential).map(p => p.id)
+           );
+
+           const migratedPresets = data.presets.map((p: any) => ({
+               ...p,
+               // If isEssential is missing (legacy), inherit from default config based on ID
+               isEssential: p.isEssential ?? defaultEssentialIds.has(p.id)
+           }));
+           setPresets(migratedPresets);
+        }
+
         if (data.theme) setTheme(data.theme);
         if (data.viewMode) setViewMode(data.viewMode);
       } catch (err) {
         console.error("Failed to parse import file", err);
+        alert("导入失败：文件格式可能已损坏");
       }
     };
     reader.readAsText(file);
