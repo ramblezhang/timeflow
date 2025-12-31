@@ -46,6 +46,9 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
+  
+  // PWA Install Prompt State
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -58,6 +61,22 @@ const App: React.FC = () => {
         metaThemeColor.setAttribute('content', theme === 'warm' ? '#fff9f2' : '#6a82fb');
     }
   }, [theme]);
+
+  // PWA: Capture the install prompt event
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   // Check for date change every minute to reset daily progress
   useEffect(() => {
@@ -319,6 +338,7 @@ const App: React.FC = () => {
           onClose={() => setIsSettingsModalOpen(false)}
           isAutoSyncActive={isAutoSyncActive}
           onToggleAutoSync={toggleAutoSync}
+          installPrompt={installPrompt}
         />
       )}
     </div>

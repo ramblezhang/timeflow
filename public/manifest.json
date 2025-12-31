@@ -2,6 +2,8 @@
 {
   "name": "TimeFlow 时间心流",
   "short_name": "TimeFlow",
+  "id": "/",
+  "scope": "/",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fff9f2",

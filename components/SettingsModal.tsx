@@ -1,5 +1,5 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 interface SettingsModalProps {
   currentTheme: 'warm' | 'nebula';
@@ -10,13 +10,26 @@ interface SettingsModalProps {
   onClose: () => void;
   isAutoSyncActive: boolean;
   onToggleAutoSync: () => void;
+  installPrompt: any; // The PWA install event
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  currentTheme, onThemeChange, onExport, onImport, onReset, onClose, isAutoSyncActive, onToggleAutoSync 
+  currentTheme, onThemeChange, onExport, onImport, onReset, onClose, isAutoSyncActive, onToggleAutoSync, installPrompt 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<string>('');
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    // Check if running in standalone mode (PWA)
+    const mq = window.matchMedia('(display-mode: standalone)');
+    setIsStandalone(mq.matches);
+
+    // Simple iOS detection
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    setIsIOS(/iphone|ipad|ipod/.test(userAgent));
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -29,6 +42,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         setImportStatus('读取失败');
       }
     }
+  };
+
+  const handleInstallClick = () => {
+    if (!installPrompt) return;
+    
+    // Show the install prompt
+    installPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    installPrompt.userChoice.then((choiceResult: any) => {
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      } else {
+        console.log('User dismissed the install prompt');
+      }
+    });
   };
 
   return (
@@ -73,6 +102,31 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                 </div>
             </div>
+
+            {/* Install App Section - Shown if NOT in standalone mode */}
+            {!isStandalone && (
+              <div className="space-y-4">
+                 <h4 className="text-[10px] uppercase tracking-[0.25em] text-zinc-400 dark:text-zinc-500 font-medium px-1 opacity-70 serif">应用安装</h4>
+                 {installPrompt ? (
+                    <button 
+                        onClick={handleInstallClick}
+                        className="w-full py-4 text-[10px] tracking-[0.25em] uppercase rounded-2xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor"><path d="M7.5 2V10M7.5 10L4.5 7M7.5 10L10.5 7M3.5 12.5H11.5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        安装到桌面
+                    </button>
+                 ) : (
+                    <div className="p-4 rounded-2xl bg-zinc-50/50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 text-center">
+                        <p className="text-[10px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+                           {isIOS 
+                             ? '轻点下方“分享”按钮，选择“添加到主屏幕”以获得最佳体验'
+                             : '如未看到按钮，请在浏览器菜单中选择“添加到主屏幕”或“安装应用”'
+                           }
+                        </p>
+                    </div>
+                 )}
+              </div>
+            )}
 
             {/* Auto-Sync Section */}
             <div className="space-y-4">
