@@ -219,22 +219,12 @@ const App: React.FC = () => {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
+        
+        // Direct assignment without migration magic
         if (data.tasks) setTasks(data.tasks);
         if (data.history) setHistory(data.history);
+        if (data.presets) setPresets(data.presets);
         
-        // Intelligent Migration for Presets
-        if (data.presets) {
-           const defaultEssentialIds = new Set(
-              DEFAULT_PRESETS.filter(p => p.isEssential).map(p => p.id)
-           );
-
-           const migratedPresets = data.presets.map((p: any) => ({
-               ...p,
-               isEssential: p.isEssential ?? defaultEssentialIds.has(p.id)
-           }));
-           setPresets(migratedPresets);
-        }
-
         if (data.theme) setTheme(data.theme);
         if (data.viewMode) setViewMode(data.viewMode);
       } catch (err) {
