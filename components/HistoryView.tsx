@@ -2,9 +2,11 @@
 import React, { useState, useMemo } from 'react';
 import { HistoryItem } from '../types';
 import { getRelativeDay } from '../utils/time';
+import EditHistoryModal from './EditHistoryModal';
 
 interface HistoryViewProps {
   history: HistoryItem[];
+  onUpdateItem?: (item: HistoryItem) => void;
 }
 
 type StatMode = '日' | '周' | '月' | '年';
@@ -68,10 +70,11 @@ const getSvgPath = (points: number[][], yMin: number, yMax: number) => {
     }, '');
 };
 
-const HistoryView: React.FC<HistoryViewProps> = ({ history }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
   const [showStats, setShowStats] = useState(false);
   const [mode, setMode] = useState<StatMode>('日');
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<HistoryItem | null>(null);
 
   // --- Statistics Computation ---
   const chartData = useMemo(() => {
@@ -403,11 +406,20 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history }) => {
                 </div>
                 <div className="space-y-10 pl-4 border-l-2 border-amber-900/5 dark:border-white/5">
                     {items.map((item) => (
-                    <div key={item.id} className="group relative">
+                    <div 
+                        key={item.id} 
+                        onClick={() => setEditingItem(item)}
+                        className="group relative cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/5 p-4 -ml-4 rounded-3xl transition-all duration-300"
+                    >
                         <div className="flex flex-col mb-2">
-                            <span className="text-[10px] mono text-amber-900/30 dark:text-zinc-500 tracking-widest uppercase mb-1">
-                                {item.startTime} — {item.endTime}
-                            </span>
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] mono text-amber-900/30 dark:text-zinc-500 tracking-widest uppercase">
+                                    {item.startTime} — {item.endTime}
+                                </span>
+                                {/* Subtle edit hint on hover */}
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] text-zinc-400 uppercase tracking-widest font-bold">Edit</span>
+                            </div>
+                            
                             <div className="flex items-center gap-3">
                                 <h4 className="text-xl font-bold serif italic text-amber-950 dark:text-zinc-200 group-hover:text-amber-600 dark:group-hover:text-zinc-50 transition-colors leading-tight">
                                     {item.name}
@@ -429,6 +441,18 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history }) => {
                 </section>
             ))}
             </div>
+      )}
+
+      {/* Edit Modal */}
+      {editingItem && onUpdateItem && (
+          <EditHistoryModal 
+            item={editingItem}
+            onSave={(updated) => {
+                onUpdateItem(updated);
+                setEditingItem(null);
+            }}
+            onClose={() => setEditingItem(null)}
+          />
       )}
     </div>
   );

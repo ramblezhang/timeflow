@@ -199,6 +199,10 @@ const App: React.FC = () => {
     setDoneModalTask(null);
   }, []);
 
+  const handleUpdateHistoryItem = useCallback((updatedItem: HistoryItem) => {
+      setHistory(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+  }, []);
+
   const handleExportData = useCallback(() => {
     const data = { tasks, history, presets, theme, viewMode };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -295,7 +299,10 @@ const App: React.FC = () => {
               onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
             />
           ) : (
-            <HistoryView history={history} />
+            <HistoryView 
+              history={history} 
+              onUpdateItem={handleUpdateHistoryItem} 
+            />
           )}
         </div>
       </main>
