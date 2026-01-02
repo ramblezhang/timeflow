@@ -48,7 +48,7 @@ const Header: React.FC<HeaderProps> = ({ viewMode, setViewMode, onOpenSettings, 
 
   return (
     <header className="fixed top-0 left-0 right-0 z-[60] pt-10 pb-6 landscape:pt-6 landscape:right-auto landscape:bottom-0 landscape:w-[35%] transition-all duration-700">
-      <div className="absolute inset-0 h-[420px] landscape:h-full pointer-events-auto transition-all duration-700" 
+      <div className="absolute inset-0 h-[360px] landscape:h-full pointer-events-auto transition-all duration-700" 
            style={{ 
              backgroundColor: 'transparent',
              backdropFilter: 'blur(16px) saturate(180%)',
@@ -59,7 +59,7 @@ const Header: React.FC<HeaderProps> = ({ viewMode, setViewMode, onOpenSettings, 
 
       <div className="relative h-full max-w-md mx-auto px-8 landscape:px-6 flex flex-col items-center landscape:justify-center">
         {/* Top Bar */}
-        <div className="w-full flex justify-between items-center mb-12 landscape:absolute landscape:top-6 landscape:left-0 landscape:px-6 landscape:mb-0">
+        <div className="w-full flex justify-between items-center mb-6 landscape:absolute landscape:top-6 landscape:left-0 landscape:px-6 landscape:mb-0">
           <button onClick={onOpenSettings} className="group p-2 -ml-2 z-10">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[var(--text-main)] opacity-40 group-hover:opacity-100 transition-opacity">
                <path d="M4 6H20M4 12H14M4 18H18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -171,11 +171,11 @@ const Header: React.FC<HeaderProps> = ({ viewMode, setViewMode, onOpenSettings, 
             </span>
           </div>
           
-          <h2 className="mt-8 landscape:mt-4 serif italic text-xl landscape:text-lg opacity-60 font-light text-center">
+          <h2 className="mt-4 landscape:mt-2 serif italic text-xl landscape:text-lg opacity-60 font-light text-center">
             Time is a river, not a clock.
           </h2>
 
-          <div className="mt-12 landscape:mt-6 w-[1px] h-20 landscape:h-12 bg-gradient-to-b from-[var(--text-main)]/30 to-transparent relative">
+          <div className="mt-6 landscape:mt-4 w-[1px] h-12 landscape:h-8 bg-gradient-to-b from-[var(--text-main)]/30 to-transparent relative">
              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[var(--text-main)]/20"></div>
           </div>
         </div>

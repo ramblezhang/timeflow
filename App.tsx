@@ -181,7 +181,8 @@ const App: React.FC = () => {
       endTime: endTimeStr,
       name: task.name,
       note,
-      color: task.color
+      color: task.color,
+      accent: task.accent // Save accent for analytics
     };
     
     setHistory(prev => [historyItem, ...prev]);
@@ -218,7 +219,6 @@ const App: React.FC = () => {
         if (data.history) setHistory(data.history);
         
         // Intelligent Migration for Presets
-        // Handle legacy backups where 'isEssential' might be missing
         if (data.presets) {
            const defaultEssentialIds = new Set(
               DEFAULT_PRESETS.filter(p => p.isEssential).map(p => p.id)
@@ -226,7 +226,6 @@ const App: React.FC = () => {
 
            const migratedPresets = data.presets.map((p: any) => ({
                ...p,
-               // If isEssential is missing (legacy), inherit from default config based on ID
                isEssential: p.isEssential ?? defaultEssentialIds.has(p.id)
            }));
            setPresets(migratedPresets);
@@ -285,7 +284,7 @@ const App: React.FC = () => {
         essentialProgress={essentialProgress}
       />
       
-      <main className="flex-1 overflow-y-auto pt-[440px] pb-48 landscape:pt-10 landscape:pl-[35%] landscape:pb-32 no-scrollbar scroll-smooth">
+      <main className="flex-1 overflow-y-auto pt-[380px] pb-48 landscape:pt-10 landscape:pl-[35%] landscape:pb-32 no-scrollbar scroll-smooth">
         <div className="max-w-md mx-auto landscape:max-w-xl">
           {viewMode === ViewMode.STREAM ? (
             <TheStream 
