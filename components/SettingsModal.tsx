@@ -1,5 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
+import { LLMSettings } from '../types';
 
 interface SettingsModalProps {
   currentTheme: 'warm' | 'nebula';
@@ -11,15 +12,23 @@ interface SettingsModalProps {
   isAutoSyncActive: boolean;
   onToggleAutoSync: () => void;
   installPrompt: any; // The PWA install event
+  llmSettings: LLMSettings;
+  onUpdateLlmSettings: (settings: LLMSettings) => void;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  currentTheme, onThemeChange, onExport, onImport, onReset, onClose, isAutoSyncActive, onToggleAutoSync, installPrompt 
+  currentTheme, onThemeChange, onExport, onImport, onReset, onClose, isAutoSyncActive, onToggleAutoSync, installPrompt,
+  llmSettings, onUpdateLlmSettings
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<string>('');
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  
+  // Local state for LLM inputs
+  const [baseUrl, setBaseUrl] = useState(llmSettings.baseUrl || '');
+  const [modelName, setModelName] = useState(llmSettings.modelName || '');
+  const [rawApiKey, setRawApiKey] = useState('');
 
   useEffect(() => {
     // Check if running in standalone mode (PWA)
@@ -29,7 +38,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     // Simple iOS detection
     const userAgent = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(userAgent));
-  }, []);
+
+    // De-obfuscate API Key for display (if exists)
+    if (llmSettings.apiKey) {
+      try {
+        setRawApiKey(atob(llmSettings.apiKey));
+      } catch (e) {
+        // Fallback: assume it wasn't encoded properly or user tampered with LS
+        setRawApiKey(llmSettings.apiKey);
+      }
+    }
+  }, [llmSettings.apiKey]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,13 +79,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
+  const handleLlmSave = () => {
+    let encodedKey = '';
+    if (rawApiKey) {
+        try {
+            // Check for Unicode to avoid crash
+            if (/[\u0080-\uffff]/.test(rawApiKey)) {
+               // Use URI encoding hack for unicode, or just store raw if we really have to.
+               // For API keys, they should be ASCII. If not, just store raw to avoid crash,
+               // but it likely won't work with the API.
+               // Storing obfuscated Unicode properly:
+               encodedKey = btoa(encodeURIComponent(rawApiKey).replace(/%([0-9A-F]{2})/g,
+                    function toSolidBytes(match, p1) {
+                        return String.fromCharCode(parseInt(p1, 16));
+                    }));
+            } else {
+               encodedKey = btoa(rawApiKey);
+            }
+        } catch (e) {
+            console.error("Failed to encode API key, saving raw.");
+            encodedKey = rawApiKey;
+        }
+    }
+
+    onUpdateLlmSettings({
+        baseUrl,
+        modelName,
+        apiKey: encodedKey
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/20 dark:bg-black/40 backdrop-blur-xl animate-in fade-in duration-500">
       <div className="bg-white/90 dark:bg-zinc-950/85 border border-white/40 dark:border-white/5 w-full max-w-[340px] landscape:max-w-[640px] rounded-[2rem] p-8 landscape:p-10 shadow-2xl relative max-h-[95vh] overflow-y-auto no-scrollbar transition-all backdrop-blur-md">
         
         {/* Close Button */}
         <button 
-          onClick={onClose}
+          onClick={() => { handleLlmSave(); onClose(); }}
           className="absolute top-6 right-6 text-zinc-400/60 hover:text-zinc-800 dark:hover:text-zinc-200 p-2 transition-colors z-10"
         >
           <svg width="20" height="20" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.1929 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.1929 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fillRule="evenodd" clipRule="evenodd"></path></svg>
@@ -76,7 +125,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           设置与归档
         </h3>
 
-        <div className="space-y-8 landscape:space-y-0 landscape:grid landscape:grid-cols-2 landscape:gap-x-12 landscape:gap-y-8">
+        <div className="space-y-10 landscape:space-y-0 landscape:grid landscape:grid-cols-2 landscape:gap-x-12 landscape:gap-y-10">
             
             {/* Theme Section */}
             <div className="space-y-4">
@@ -127,6 +176,47 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                  )}
               </div>
             )}
+
+            {/* AI Config Section */}
+            <div className="space-y-4 landscape:col-span-2">
+                 <h4 className="text-[10px] uppercase tracking-[0.25em] text-zinc-400 dark:text-zinc-500 font-medium px-1 opacity-70 serif">流光·洞见 (AI Settings)</h4>
+                 <div className="p-5 rounded-2xl bg-zinc-50/50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 space-y-4">
+                    <div className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 ml-1">API Base URL</label>
+                            <input 
+                                type="text"
+                                value={baseUrl}
+                                onChange={(e) => setBaseUrl(e.target.value)}
+                                placeholder="https://..."
+                                className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-zinc-400"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 ml-1">Model Name</label>
+                            <input 
+                                type="text"
+                                value={modelName}
+                                onChange={(e) => setModelName(e.target.value)}
+                                placeholder="e.g. moonshotai/Kimi-K2-Instruct-0905"
+                                className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-zinc-400"
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                         <label className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 ml-1">API Key</label>
+                         <input 
+                            type="password"
+                            value={rawApiKey}
+                            onChange={(e) => setRawApiKey(e.target.value)}
+                            onBlur={handleLlmSave}
+                            placeholder="sk-..."
+                            className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-zinc-400 tracking-widest"
+                         />
+                         <p className="text-[9px] text-zinc-400 pl-1 pt-1 opacity-70">Key 将以混淆格式仅存储在本地浏览器中。</p>
+                    </div>
+                 </div>
+            </div>
 
             {/* Auto-Sync Section */}
             <div className="space-y-4">
@@ -180,7 +270,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
             </div>
 
-            <div className="landscape:flex landscape:items-end">
+            <div className="landscape:flex landscape:items-end landscape:col-span-2">
               <button 
                   onClick={onReset}
                   className="w-full py-5 landscape:py-6 text-[10px] tracking-[0.25em] uppercase rounded-2xl transition-all border border-transparent hover:border-red-100 dark:hover:border-red-900/30 text-zinc-400 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 font-medium serif"

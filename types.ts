@@ -40,6 +40,18 @@ export interface Preset {
   isEssential?: boolean;
 }
 
+export interface LLMSettings {
+  baseUrl: string;
+  modelName: string;
+  apiKey: string; // Stored in obfuscated format (Base64)
+}
+
+export const DEFAULT_LLM_SETTINGS: LLMSettings = {
+  baseUrl: 'https://api-inference.modelscope.cn/v1/',
+  modelName: 'Qwen/Qwen3-235B-A22B-Thinking-2507',
+  apiKey: ''
+};
+
 // Optimized Palette: High Contrast & Vibrant for Area Charts
 export const DEFAULT_PRESETS: Preset[] = [
   { id: 'p1', name: '沉浸工作', duration: 60, color: 'text-zinc-600', accent: '#2563eb', icon: 'work' }, // Blue 600

@@ -7,26 +7,40 @@ import HistoryView from './components/HistoryView';
 import DoneModal from './components/DoneModal';
 import PresetModal from './components/PresetModal';
 import SettingsModal from './components/SettingsModal';
-import { Task, HistoryItem, ViewMode, Preset, DEFAULT_PRESETS } from './types';
+import { Task, HistoryItem, ViewMode, Preset, DEFAULT_PRESETS, LLMSettings, DEFAULT_LLM_SETTINGS } from './types';
 import { calculateTimeline, formatTime } from './utils/time';
 
 type Theme = 'warm' | 'nebula';
 
 const App: React.FC = () => {
-  // --- Persistent State Initialization ---
+  // --- Persistent State Initialization (Safe Parsing) ---
   const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('tf_tasks');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('tf_tasks');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error('Failed to parse tasks', e);
+      return [];
+    }
   });
   
   const [history, setHistory] = useState<HistoryItem[]>(() => {
-    const saved = localStorage.getItem('tf_history');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('tf_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error('Failed to parse history', e);
+      return [];
+    }
   });
 
   const [presets, setPresets] = useState<Preset[]>(() => {
-    const saved = localStorage.getItem('tf_presets');
-    return saved ? JSON.parse(saved) : DEFAULT_PRESETS;
+    try {
+      const saved = localStorage.getItem('tf_presets');
+      return saved ? JSON.parse(saved) : DEFAULT_PRESETS;
+    } catch (e) {
+      return DEFAULT_PRESETS;
+    }
   });
 
   const [theme, setTheme] = useState<Theme>(() => {
@@ -35,6 +49,19 @@ const App: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     return (localStorage.getItem('tf_viewMode') as ViewMode) || ViewMode.STREAM;
+  });
+
+  const [llmSettings, setLlmSettings] = useState<LLMSettings>(() => {
+    try {
+      const saved = localStorage.getItem('tf_llm_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...DEFAULT_LLM_SETTINGS, ...parsed };
+      }
+    } catch (e) {
+      // ignore corruption
+    }
+    return DEFAULT_LLM_SETTINGS;
   });
 
   // Track current date to ensure daily goals reset at midnight automatically
@@ -94,13 +121,15 @@ const App: React.FC = () => {
     currentHistory: HistoryItem[], 
     currentPresets: Preset[], 
     currentTheme: Theme,
-    currentViewMode: ViewMode
+    currentViewMode: ViewMode,
+    currentLlmSettings: LLMSettings
   ) => {
     localStorage.setItem('tf_tasks', JSON.stringify(currentTasks));
     localStorage.setItem('tf_history', JSON.stringify(currentHistory));
     localStorage.setItem('tf_presets', JSON.stringify(currentPresets));
     localStorage.setItem('tf_theme', currentTheme);
     localStorage.setItem('tf_viewMode', currentViewMode);
+    localStorage.setItem('tf_llm_settings', JSON.stringify(currentLlmSettings));
 
     if (fileHandleRef.current) {
       try {
@@ -110,6 +139,7 @@ const App: React.FC = () => {
           presets: currentPresets, 
           theme: currentTheme, 
           viewMode: currentViewMode,
+          llmSettings: currentLlmSettings,
           lastSync: new Date().toISOString() 
         };
         const writable = await fileHandleRef.current.createWritable();
@@ -125,23 +155,18 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    persistData(tasks, history, presets, theme, viewMode);
-  }, [tasks, history, presets, theme, viewMode, persistData]);
+    persistData(tasks, history, presets, theme, viewMode, llmSettings);
+  }, [tasks, history, presets, theme, viewMode, llmSettings, persistData]);
 
   // Derived timeline
   const timelineTasks = useMemo(() => calculateTimeline(tasks), [tasks]);
 
   // Calculate Daily Essential Progress
-  // Now depends on currentDateStr, so it recalculates automatically when date changes
   const essentialProgress = useMemo(() => {
     const essentials = presets.filter(p => p.isEssential);
     if (essentials.length === 0) return { total: 0, current: 0 };
 
-    // Use the tracked state date string instead of creating a new one inside useMemo
-    // This ensures consistency if the app is left open overnight
     const doneTodayNames = new Set(history.filter(h => h.date === currentDateStr).map(h => h.name));
-    
-    // Count how many distinct essential presets have been completed at least once today
     const current = essentials.filter(p => doneTodayNames.has(p.name)).length;
     
     return { total: essentials.length, current };
@@ -182,11 +207,10 @@ const App: React.FC = () => {
       name: task.name,
       note,
       color: task.color,
-      accent: task.accent // Save accent for analytics
+      accent: task.accent 
     };
     
     setHistory(prev => [historyItem, ...prev]);
-    // Also update current date if needed (edge case around midnight)
     setCurrentDateStr(now.toLocaleDateString('zh-CN'));
 
     setTasks(prev => {
@@ -204,7 +228,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleExportData = useCallback(() => {
-    const data = { tasks, history, presets, theme, viewMode };
+    const data = { tasks, history, presets, theme, viewMode, llmSettings };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -212,21 +236,19 @@ const App: React.FC = () => {
     link.download = `timeflow-backup-${new Date().toISOString().split('T')[0]}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [tasks, history, presets, theme, viewMode]);
+  }, [tasks, history, presets, theme, viewMode, llmSettings]);
 
   const handleImportData = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        
-        // Direct assignment without migration magic
         if (data.tasks) setTasks(data.tasks);
         if (data.history) setHistory(data.history);
         if (data.presets) setPresets(data.presets);
-        
         if (data.theme) setTheme(data.theme);
         if (data.viewMode) setViewMode(data.viewMode);
+        if (data.llmSettings) setLlmSettings(data.llmSettings);
       } catch (err) {
         console.error("Failed to parse import file", err);
         alert("导入失败：文件格式可能已损坏");
@@ -242,6 +264,7 @@ const App: React.FC = () => {
       setPresets(DEFAULT_PRESETS);
       setTheme('warm');
       setViewMode(ViewMode.STREAM);
+      setLlmSettings(DEFAULT_LLM_SETTINGS);
       localStorage.clear();
     }
   }, []);
@@ -262,12 +285,12 @@ const App: React.FC = () => {
         });
         fileHandleRef.current = handle;
         setIsAutoSyncActive(true);
-        persistData(tasks, history, presets, theme, viewMode);
+        persistData(tasks, history, presets, theme, viewMode, llmSettings);
       } catch (err) {
         console.warn("Auto-sync file selection cancelled or failed.");
       }
     }
-  }, [isAutoSyncActive, tasks, history, presets, theme, viewMode, persistData]);
+  }, [isAutoSyncActive, tasks, history, presets, theme, viewMode, llmSettings, persistData]);
 
   return (
     <div className="h-full relative overflow-hidden flex flex-col landscape:flex-row">
@@ -291,7 +314,8 @@ const App: React.FC = () => {
           ) : (
             <HistoryView 
               history={history} 
-              onUpdateItem={handleUpdateHistoryItem} 
+              onUpdateItem={handleUpdateHistoryItem}
+              llmSettings={llmSettings}
             />
           )}
         </div>
@@ -335,6 +359,8 @@ const App: React.FC = () => {
           isAutoSyncActive={isAutoSyncActive}
           onToggleAutoSync={toggleAutoSync}
           installPrompt={installPrompt}
+          llmSettings={llmSettings}
+          onUpdateLlmSettings={setLlmSettings}
         />
       )}
     </div>

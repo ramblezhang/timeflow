@@ -1,20 +1,29 @@
 
 import React, { useState, useMemo } from 'react';
-import { HistoryItem } from '../types';
+import { HistoryItem, LLMSettings } from '../types';
 import { getRelativeDay } from '../utils/time';
 import EditHistoryModal from './EditHistoryModal';
+import LumiereModal from './LumiereModal';
+import { prepareDataForPrompt, fetchLumiereInsight } from '../utils/ai';
 
 interface HistoryViewProps {
   history: HistoryItem[];
   onUpdateItem?: (item: HistoryItem) => void;
+  llmSettings: LLMSettings;
 }
 
 type StatMode = '日' | '周' | '月' | '年';
 
 // Helpers
 const parseTime = (timeStr: string): number => {
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
+    if (!timeStr) return 0;
+    try {
+        const [h, m] = timeStr.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) return 0;
+        return h * 60 + m;
+    } catch(e) {
+        return 0;
+    }
 };
 
 const getDuration = (start: string, end: string): number => {
@@ -34,9 +43,7 @@ const LEGACY_COLOR_MAP: Record<string, string> = {
     'text-orange-900': '#ea580c',
 };
 
-// --- SVG Math Helpers for Smooth Area Chart ---
-
-// Clamp helper to keep curves within chart bounds
+// --- SVG Math Helpers ---
 const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(val, max));
 
 const svgControlPoint = (current: number[], previous: number[], next: number[], reverse: boolean, yMin: number, yMax: number) => {
@@ -50,8 +57,6 @@ const svgControlPoint = (current: number[], previous: number[], next: number[], 
     
     const x = current[0] + o.x * smoothing * (reverse ? 0.5 : -0.5);
     let y = current[1] + o.y * smoothing * (reverse ? 0.5 : -0.5);
-    
-    // CRITICAL FIX: Clamp the control point Y to prevent the curve from dipping below baseline or going above top
     y = clamp(y, yMin, yMax);
 
     return [x, y];
@@ -70,16 +75,47 @@ const getSvgPath = (points: number[][], yMin: number, yMax: number) => {
     }, '');
 };
 
-const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem, llmSettings }) => {
   const [showStats, setShowStats] = useState(false);
   const [mode, setMode] = useState<StatMode>('日');
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<HistoryItem | null>(null);
+  
+  // Lumière State
+  const [showLumiere, setShowLumiere] = useState(false);
+  const [lumiereLoading, setLumiereLoading] = useState(false);
+  const [lumiereContent, setLumiereContent] = useState('');
+  const [lumiereError, setLumiereError] = useState<string | null>(null);
+
+  const handleOpenLumiere = async () => {
+      setShowLumiere(true);
+      setLumiereLoading(true);
+      setLumiereError(null);
+      setLumiereContent('');
+
+      try {
+          const dataContext = prepareDataForPrompt(history);
+          const insight = await fetchLumiereInsight(dataContext, llmSettings);
+          setLumiereContent(insight);
+      } catch (err) {
+          if (err instanceof Error) {
+              const msg = err.message;
+              if (msg.includes("API Key is missing")) {
+                  setLumiereError("请先在设置中配置 API Key");
+              } else {
+                  setLumiereError(msg);
+              }
+          } else {
+              setLumiereError("未知错误");
+          }
+      } finally {
+          setLumiereLoading(false);
+      }
+  };
 
   // --- Statistics Computation ---
   const chartData = useMemo(() => {
     const today = new Date();
-    // Reset time part for cleaner daily comparison
     today.setHours(0,0,0,0);
 
     const buckets: { label: string; dateKey: string; items: HistoryItem[] }[] = [];
@@ -90,7 +126,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
             const d = new Date(today);
             d.setDate(today.getDate() - i);
             const dateKey = d.toLocaleDateString('zh-CN');
-            // Simplified label
             const dayName = i === 0 ? '今天' : `${d.getMonth() + 1}/${d.getDate()}`;
             buckets.push({ label: dayName, dateKey, items: [] });
         }
@@ -105,7 +140,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
             endOfWeek.setDate(d.getDate() + 6);
             
             const label = `${d.getMonth()+1}/${d.getDate()}`;
-            // Store timestamps for range matching
             const rangeKey = `${d.getTime()}-${endOfWeek.getTime()}`;
             buckets.push({ label, dateKey: rangeKey, items: [] });
         }
@@ -113,7 +147,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
         for (let i = 11; i >= 0; i--) {
             const d = new Date(today);
             d.setMonth(today.getMonth() - i);
-            d.setDate(1); // First day of month
+            d.setDate(1); 
             const label = `${d.getMonth()+1}月`;
             const dateKey = `${d.getFullYear()}-${d.getMonth()}`;
             buckets.push({ label, dateKey, items: [] });
@@ -129,12 +163,15 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
     }
 
     // 2. Distribute History Items into Buckets
-    // Also identify all unique categories (presets) present in this range
     const categorySet = new Set<string>();
     const colorMap: Record<string, string> = {};
 
     history.forEach(item => {
+        if (!item.date) return;
         const itemDate = new Date(item.date);
+        // Robust check for Invalid Date
+        if (isNaN(itemDate.getTime())) return;
+
         let targetBucket = null;
 
         if (mode === '日') {
@@ -166,10 +203,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
     const categories = Array.from(categorySet);
 
     // 3. Calculate Stacked Coordinates for SVG
-    // We need for each bucket: x coordinate.
-    // For each bucket & category: yBottom, yTop.
-    
-    // Normalize Data
     const chartWidth = 1000;
     const chartHeight = 300;
     const paddingX = 40;
@@ -177,42 +210,31 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
     const drawableWidth = chartWidth - paddingX * 2;
     const drawableHeight = chartHeight - paddingY * 2;
 
-    // Boundaries for clamping (SVG Coords)
-    // Top of chart is paddingY (y=20), Bottom is paddingY + drawableHeight (y=280)
     const yMinBound = paddingY;
     const yMaxBound = paddingY + drawableHeight;
-
-    // Calculate totals per bucket to normalize Y axis (Percentage view or Absolute view?)
-    // "占比" suggests Percentage (100% Stacked) OR just visual comparison.
-    // Usually Absolute Stacked Area is better to show "Total Volume" changes + "Ratio" changes.
-    // Let's do Absolute Stacked.
 
     const bucketTotals = buckets.map(b => 
         b.items.reduce((sum, item) => sum + getDuration(item.startTime, item.endTime), 0)
     );
-    const maxTotal = Math.max(...bucketTotals, 60); // Min 60 mins to prevent flatline
+    const maxTotal = Math.max(...bucketTotals, 60);
 
     const stackedData = buckets.map((bucket, i) => {
         const x = paddingX + (i / (buckets.length - 1)) * drawableWidth;
         
-        let currentY = 0; // Start from bottom (0 duration)
+        let currentY = 0; 
         
-        // Group item durations by category for this bucket
         const catDurations: Record<string, number> = {};
         categories.forEach(c => catDurations[c] = 0);
         bucket.items.forEach(item => {
             catDurations[item.name] += getDuration(item.startTime, item.endTime);
         });
 
-        // Stack them
         const stackPoints = categories.map(cat => {
             const val = catDurations[cat];
             const yBottomVal = currentY;
             const yTopVal = currentY + val;
             currentY += val;
 
-            // Invert Y for SVG (0 is top)
-            // Map value 0..maxTotal to drawableHeight..0
             const yBottom = paddingY + drawableHeight - (yBottomVal / maxTotal * drawableHeight);
             const yTop = paddingY + drawableHeight - (yTopVal / maxTotal * drawableHeight);
 
@@ -227,9 +249,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
         return { x, label: bucket.label, stackPoints };
     });
 
-    // 4. Generate Paths per Category
     const paths = categories.map((cat, catIndex) => {
-        // Collect points for Top line and Bottom line
         const topPoints: number[][] = [];
         const bottomPoints: number[][] = [];
 
@@ -239,22 +259,20 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
             bottomPoints.push([d.x, p.yBottom]);
         });
 
-        // Area path: Top curve L-to-R, then Line down, then Bottom curve R-to-L, then Line up
         const topPath = getSvgPath(topPoints, yMinBound, yMaxBound);
-        // We also clamp reverse path just in case
         const bottomPathReversed = getSvgPath([...bottomPoints].reverse(), yMinBound, yMaxBound); 
 
-        // Full closed shape
-        // We need to explicitly handle the lines connecting the ends
-        const lastTop = topPoints[topPoints.length - 1];
         const lastBottom = bottomPoints[bottomPoints.length - 1];
-        // const firstBottom = bottomPoints[0];
+        const topStart = topPoints[0];
+
+        // Ensure we have a valid closed path even if points are weird
+        if (!lastBottom || !topStart) return { name: cat, color: colorMap[cat], d: '' };
 
         const d = `
             ${topPath}
             L ${lastBottom[0].toFixed(1)},${lastBottom[1].toFixed(1)}
             ${bottomPathReversed.replace('M', 'L')} 
-            L ${topPoints[0][0].toFixed(1)},${topPoints[0][1].toFixed(1)}
+            L ${topStart[0].toFixed(1)},${topStart[1].toFixed(1)}
             Z
         `;
 
@@ -266,8 +284,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
     });
 
     return {
-        buckets: stackedData, // For X-axis labels and tooltips
-        paths, // For SVG paths
+        buckets: stackedData, 
+        paths, 
         chartWidth,
         chartHeight
     };
@@ -276,6 +294,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
 
   // --- List Grouping (Legacy View) ---
   const groups = history.reduce((acc, item) => {
+    if (!item.date) return acc;
     if (!acc[item.date]) acc[item.date] = [];
     acc[item.date].push(item);
     return acc;
@@ -287,21 +306,33 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
       {/* Header & Toggle */}
       <div className="flex justify-between items-end mb-6">
         <h2 className="text-[10px] uppercase tracking-[0.25em] text-zinc-400 dark:text-zinc-500 font-bold">
-            {showStats ? '趋势洞察' : '时间长河'}
+            {showStats ? '时光绘卷' : '时间长河'}
         </h2>
-        <button 
-            onClick={() => setShowStats(!showStats)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${showStats ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-transparent shadow-lg' : 'bg-transparent border-zinc-200 dark:border-white/10 text-zinc-500 hover:text-zinc-900 dark:hover:text-white'}`}
-        >
-            <span className="text-[10px] font-bold tracking-widest uppercase">
-                {showStats ? '收起图表' : '统计趋势'}
-            </span>
-            {showStats ? (
-                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor"><path d="M4 9l3.5-3.5L11 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            ) : (
-                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor"><path d="M13.5 13.5V1.5M10.5 10.5L7.5 7.5L4.5 10.5M10.5 4.5H1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            )}
-        </button>
+        <div className="flex items-center gap-2">
+            {/* Lumière Button */}
+            <button 
+                onClick={handleOpenLumiere}
+                className="flex items-center gap-2 px-3 py-2 rounded-full border border-zinc-200 dark:border-white/10 text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-200 hover:border-amber-200 transition-all group"
+                title="流光·洞见 (AI Insight)"
+            >
+                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" className="group-hover:animate-pulse text-amber-500"><path d="M7.5 1.5l1.5 1.5 2 4.5-4.5-2-4.5 2 2-4.5 1.5-1.5z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <span className="text-[10px] font-bold tracking-widest uppercase">洞见</span>
+            </button>
+
+            <button 
+                onClick={() => setShowStats(!showStats)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${showStats ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-transparent shadow-lg' : 'bg-transparent border-zinc-200 dark:border-white/10 text-zinc-500 hover:text-zinc-900 dark:hover:text-white'}`}
+            >
+                <span className="text-[10px] font-bold tracking-widest uppercase">
+                    {showStats ? '收起绘卷' : '时光绘卷'}
+                </span>
+                {showStats ? (
+                    <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor"><path d="M4 9l3.5-3.5L11 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                ) : (
+                    <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor"><path d="M13.5 13.5V1.5M10.5 10.5L7.5 7.5L4.5 10.5M10.5 4.5H1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                )}
+            </button>
+        </div>
       </div>
 
       {/* --- Statistics Panel (Expandable) --- */}
@@ -328,7 +359,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
                 <div className="w-full aspect-[16/9] landscape:aspect-[21/9] relative mb-4">
                     {history.length === 0 ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40">
-                             <span className="text-[10px] serif italic">积累更多时间以解锁趋势</span>
+                             <span className="text-[10px] serif italic">积累更多时间以解锁绘卷</span>
                         </div>
                     ) : (
                         <svg 
@@ -372,10 +403,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
                     )}
                 </div>
 
-                {/* Interactive Legend - Grid Layout for Multi-row support */}
+                {/* Interactive Legend */}
                 {history.length > 0 && (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-6">
-                        {/* FIX: Use spread operator [...] to create a shallow copy before reversing to avoid mutating the original array */}
                         {[...chartData.paths].reverse().map(p => (
                             <button 
                                 key={p.name}
@@ -393,7 +423,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
         </div>
       )}
 
-      {/* --- Legacy List View (Always Present) --- */}
+      {/* --- Legacy List View --- */}
       {history.length > 0 && (
           <div className="space-y-16 animate-in fade-in delay-200">
             {(Object.entries(groups) as [string, HistoryItem[]][]).map(([date, items]) => (
@@ -416,7 +446,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
                                 <span className="text-[10px] mono text-amber-900/30 dark:text-zinc-500 tracking-widest uppercase">
                                     {item.startTime} — {item.endTime}
                                 </span>
-                                {/* Subtle edit hint on hover */}
                                 <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] text-zinc-400 uppercase tracking-widest font-bold">Edit</span>
                             </div>
                             
@@ -453,6 +482,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onUpdateItem }) => {
             }}
             onClose={() => setEditingItem(null)}
           />
+      )}
+
+      {/* Lumière (AI) Modal */}
+      {showLumiere && (
+        <LumiereModal 
+            content={lumiereContent}
+            isLoading={lumiereLoading}
+            error={lumiereError}
+            onClose={() => setShowLumiere(false)}
+        />
       )}
     </div>
   );
